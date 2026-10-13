@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>50音配對練習</title>
+<style>
+:root{--bg:#fafaf7;--fg:#1d1d1b;--card:#fff;--bd:#d8d6cf;--ac:#2a6f97;--ok:#2e7d32;--no:#c62828;--mut:#777;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#171716;--fg:#eee;--card:#222221;--bd:#3a3a38;--ac:#6cb4dc;--ok:#66bb6a;--no:#ef5350;--mut:#999}}
+:root[data-theme="dark"]{--bg:#171716;--fg:#eee;--card:#222221;--bd:#3a3a38;--ac:#6cb4dc;--ok:#66bb6a;--no:#ef5350;--mut:#999}
+html,body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,"Noto Sans TC","PingFang TC",sans-serif}
+main{max-width:480px;margin:0 auto;padding:16px}
+h1{font-size:18px;margin:0 0 12px}
+fieldset{border:1px solid var(--bd);border-radius:10px;margin:0 0 10px;padding:8px 12px;background:var(--card)}
+legend{font-size:12px;color:var(--mut);padding:0 4px}
+label{display:inline-block;margin:3px 10px 3px 0;font-size:14px}
+button{font:inherit;color:inherit;cursor:pointer}
+#start{width:100%;padding:12px;border:0;border-radius:10px;background:var(--ac);color:#fff;font-size:16px}
+#score{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);margin-bottom:8px}
+#q{background:var(--card);border:1px solid var(--bd);border-radius:14px;text-align:center;font-size:84px;padding:28px 0;margin-bottom:12px;min-height:110px}
+#q.r{font-size:56px;padding:44px 0}
+#opts{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.o{padding:16px 0;font-size:28px;border:1px solid var(--bd);border-radius:12px;background:var(--card)}
+.o.ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 20%,var(--card))}
+.o.no{border-color:var(--no);background:color-mix(in srgb,var(--no) 20%,var(--card))}
+#fb{height:24px;text-align:center;margin-top:10px;font-size:14px;color:var(--mut)}
+#end{margin-top:10px;width:100%;padding:8px;border:1px solid var(--bd);border-radius:10px;background:none}
+.hide{display:none}
+</style>
+</head>
+<body>
+<main>
+<h1>50音配對練習</h1>
+<section id="setup">
+<fieldset><legend>題型</legend>
+<label><input type="radio" name="m" value="k2r" checked> 看假名選讀音</label>
+<label><input type="radio" name="m" value="r2k"> 看讀音選假名</label>
+<label><input type="radio" name="m" value="mix"> 混合</label></fieldset>
+<fieldset><legend>文字</legend>
+<label><input type="checkbox" id="sh" checked> 平假名</label>
+<label><input type="checkbox" id="sk"> 片假名</label></fieldset>
+<fieldset><legend>範圍（行）</legend><div id="rows"></div></fieldset>
+<button id="start">開始</button>
+</section>
+<section id="play" class="hide">
+<div id="score"><span id="s1"></span><span id="s2"></span></div>
+<div id="q"></div>
+<div id="opts"></div>
+<div id="fb"></div>
+<button id="end">結束，回設定</button>
+</section>
+</main>
+<script>
+const H="あいうえお かきくけこ さしすせそ たちつてと なにぬねの はひふへほ まみむめも やゆよ らりるれろ わをん がぎぐげご ざじずぜぞ だでど ばびぶべぼ ぱぴぷぺぽ".split(" ");
+const K="アイウエオ カキクケコ サシスセソ タチツテト ナニヌネノ ハヒフヘホ マミムメモ ヤユヨ ラリルレロ ワヲン ガギグゲゴ ザジズゼゾ ダデド バビブベボ パピプペポ".split(" ");
+const R="a i u e o|ka ki ku ke ko|sa shi su se so|ta chi tsu te to|na ni nu ne no|ha hi fu he ho|ma mi mu me mo|ya yu yo|ra ri ru re ro|wa wo n|ga gi gu ge go|za ji zu ze zo|da de do|ba bi bu be bo|pa pi pu pe po".split("|").map(s=>s.split(" "));
+const names="あ行,か行,さ行,た行,な行,は行,ま行,や行,ら行,わ行,が行,ざ行,だ行,ば行,ぱ行".split(",");
+const $=id=>document.getElementById(id);
+let jv=null;
+function loadV(){const v=speechSynthesis.getVoices();jv=v.find(x=>x.lang.replace('_','-')==='ja-JP'&&/Kyoko|O-Ren|Otoya|Google/.test(x.name))||v.find(x=>x.lang.replace('_','-')==='ja-JP')||null}
+if('speechSynthesis' in window){loadV();speechSynthesis.onvoiceschanged=loadV}
+function speak(t){if(!('speechSynthesis' in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='ja-JP';if(jv)u.voice=jv;u.rate=.8;speechSynthesis.speak(u)}
+$("rows").innerHTML=names.map((n,i)=>`<label><input type="checkbox" class="rw" value="${i}" ${i<5?"checked":""}> ${n}</label>`).join("");
+let pool=[],mode,stat,cur,locked,right=0,total=0,streak=0;
+const shuffle=a=>{a=[...a];for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}return a};
+$("start").onclick=()=>{
+  const rows=[...document.querySelectorAll(".rw:checked")].map(e=>+e.value);
+  const scripts=[];if($("sh").checked)scripts.push(0);if($("sk").checked)scripts.push(1);
+  if(!rows.length||!scripts.length){alert("請至少選一種文字和一行");return}
+  pool=[];
+  for(const s of scripts)for(const r of rows){const set=s?K:H;[...set[r]].forEach((c,i)=>pool.push({k:c,r:R[r][i],s,w:1}))}
+  if(pool.length<4){alert("範圍太小，請多選幾行");return}
+  mode=document.querySelector("input[name=m]:checked").value;
+  right=total=streak=0;
+  $("setup").classList.add("hide");$("play").classList.remove("hide");next();
+};
+$("end").onclick=()=>{$("play").classList.add("hide");$("setup").classList.remove("hide")};
+function pick(){ // weighted by past mistakes
+  const sum=pool.reduce((a,p)=>a+p.w,0);let x=Math.random()*sum;
+  for(const p of pool){x-=p.w;if(x<=0&&p!==cur)return p}
+  return pool.find(p=>p!==cur)||pool[0];
+}
+function next(){
+  locked=false;cur=pick();
+  const m=mode==="mix"?(Math.random()<.5?"k2r":"r2k"):mode;cur.m=m;
+  $("q").textContent=m==="k2r"?cur.k:cur.r;$("q").className=m==="k2r"?"":"r";
+  const same=pool.filter(p=>p.s===cur.s&&p!==cur);
+  const opts=shuffle([cur,...shuffle(same).slice(0,3)]);
+  $("opts").innerHTML="";
+  opts.forEach((o,i)=>{const b=document.createElement("button");b.className="o";b.textContent=m==="k2r"?o.r:o.k;b.onclick=()=>answer(o,b);$("opts").appendChild(b)});
+  $("fb").textContent="🔊 點上方題目可再聽一次";
+  $("s1").textContent=`答對 ${right} / ${total}`;$("s2").textContent=`連續 ${streak}`;
+}
+function answer(o,btn){
+  if(locked)return;locked=true;total++;
+  const ok=o===cur;speak(cur.k);
+  if(ok){right++;streak++;cur.w=Math.max(.5,cur.w*.7);btn.classList.add("ok");setTimeout(next,1000)}
+  else{streak=0;cur.w=Math.min(6,cur.w+2);btn.classList.add("no");
+    [...$("opts").children].forEach(b=>{if(b.textContent===(cur.m==="k2r"?cur.r:cur.k))b.classList.add("ok")});
+    $("fb").textContent=`${cur.k} = ${cur.r}`;setTimeout(next,1400)}
+  $("s1").textContent=`答對 ${right} / ${total}`;$("s2").textContent=`連續 ${streak}`;
+}
+$("q").onclick=()=>{if(cur)speak(cur.k)};
+document.addEventListener("keydown",e=>{
+  if($("play").classList.contains("hide"))return;
+  const n=+e.key;if(n>=1&&n<=4){const b=$("opts").children[n-1];if(b)b.click()}
+});
+</script>
+</body>
+</html>
