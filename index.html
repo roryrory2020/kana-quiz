@@ -87,6 +87,7 @@ footer a{color:inherit}
 <button class="big alt" id="b2">易混淆字練習</button>
 <button class="big alt" id="b3">限時衝刺 60 秒</button>
 <button class="big alt" id="b4">熟練度總覽</button>
+<button class="big alt" id="b5">筆順手寫練習</button>
 </section>
 
 <section id="grid" class="hide">
@@ -96,6 +97,14 @@ footer a{color:inherit}
 <div class="lg">顏色：灰＝還沒練過　紅＝剛答錯　橘＝剛開始記　黃＝快記住　綠＝熟了　虛線框＝今天該複習。點格子可聽發音。</div>
 <button class="sm" id="gr">重置所有進度</button>
 <button class="sm" id="gx">返回</button>
+</section>
+
+<section id="hwp" class="hide">
+<div class="lg" style="margin-top:0">點任一個字開始練習，也可以隨機連續練習。純練習，不計入熟練度。</div>
+<div class="tabs"><button class="sm on" id="ht0">平假名</button><button class="sm" id="ht1">片假名</button></div>
+<div id="hb"></div>
+<button class="big" id="hr">隨機連續練習（依首頁勾選的行）</button>
+<button class="sm" id="hx">返回</button>
 </section>
 
 <section id="play" class="hide">
@@ -113,7 +122,7 @@ footer a{color:inherit}
 </main>
 
 <div id="wr" class="hide"><div class="box">
-<div style="font-size:13px;color:var(--mut)">答錯了，照正確筆順寫一次</div>
+<div id="wlbl" style="font-size:13px;color:var(--mut)">答錯了，照正確筆順寫一次</div>
 <div id="wt"></div>
 <svg id="ws" viewBox="0 0 109 109"></svg>
 <div id="wst"></div>
@@ -122,6 +131,7 @@ footer a{color:inherit}
 <button class="sm" id="wan">▶ 看筆順動畫</button>
 <button class="sm" id="wcl">清除重寫</button>
 <button class="sm" id="wsk">跳過</button>
+<button class="sm hide" id="wex">結束練習</button>
 </div></div></div>
 
 <script>
@@ -160,7 +170,7 @@ $("rows").innerHTML=names.map((n,i)=>`<label><input type="checkbox" class="rw" v
 if(S0.m)document.querySelector(`input[name=m][value=${S0.m}]`).checked=true;
 if(S0.sh!==undefined){$("sh").checked=S0.sh;$("sk").checked=S0.sk}
 if(S0.hw!==undefined)$("hw").checked=S0.hw;
-function show(id){["setup","grid","play"].forEach(x=>$(x).classList.toggle("hide",x!==id));if(id==="setup")refreshInfo()}
+function show(id){["setup","grid","hwp","play"].forEach(x=>$(x).classList.toggle("hide",x!==id));if(id==="setup")refreshInfo()}
 function dueCount(){const n=Date.now();return CARDS.filter(c=>{const s=save.cards[c.id];return s&&s.n&&s.d<=n}).length}
 function refreshInfo(){$("info").textContent=`待複習 ${dueCount()} 個　衝刺最高分 ${save.best}　（進度存在這支手機的瀏覽器裡）`}
 refreshInfo();
@@ -277,7 +287,7 @@ function renderGrid(){
       if(s&&s.n){cl=s.b===0?"c0":s.b<=2?"c1":s.b===3?"c3":"c4";if(s.d<=now)cl+=" due"}
       return `<div class="cell ${cl}" data-k="${ch}">${ch}<small>${c.r}</small></div>`}).join("");
     return `<div class="gr"><span>${n}</span>${cs}</div>`}).join("");
-  document.querySelectorAll(".cell").forEach(e=>e.onclick=()=>speak(e.dataset.k));
+  document.querySelectorAll("#gb .cell").forEach(e=>e.onclick=()=>speak(e.dataset.k));
 }
 $("t0").onclick=()=>{gs=0;renderGrid()};$("t1").onclick=()=>{gs=1;renderGrid()};
 $("gx").onclick=()=>show("setup");
@@ -297,9 +307,10 @@ function resample(pts,N){
     out.push({x:a.x+(b.x-a.x)*f,y:a.y+(b.y-a.y)*f})}
   return out;
 }
-function openWriter(c,cb){
+function openWriter(c,cb,o){
   const sp=STROKES[c.k];if(!sp){cb();return}
   $("wr").classList.remove("hide");
+  $("wlbl").textContent=(o&&o.label)||"答錯了，照正確筆順寫一次";$("wex").classList.toggle("hide",!(o&&o.exit));
   ws.innerHTML="";
   const g={};["grid","gh","nm","dn","hint","an","us"].forEach(n=>g[n]=mk("g",{},ws));
   mk("line",{x1:54.5,y1:4,x2:54.5,y2:105,class:"gl"},g.grid);mk("line",{x1:4,y1:54.5,x2:105,y2:54.5,class:"gl"},g.grid);
@@ -364,6 +375,26 @@ $("wsnd").onclick=()=>{if(W.c)speak(W.c.k)};
 $("wan").onclick=()=>{if(W.c)startAnim()};
 $("wcl").onclick=()=>{if(W.tracing)resetTrace()};
 $("wsk").onclick=()=>closeWriter(true);
+
+/* ---------- standalone stroke practice ---------- */
+let hs=0,hq=[];
+function renderHp(){
+  $("ht0").classList.toggle("on",hs===0);$("ht1").classList.toggle("on",hs===1);
+  $("hb").innerHTML=names.map((n,r)=>{
+    const cs=[...(hs?K:H)[r]].map(ch=>`<div class="cell" data-k="${ch}">${ch}<small>${BYK[hs+":"+ch].r}</small></div>`).join("");
+    return `<div class="gr"><span>${n}</span>${cs}</div>`}).join("");
+  document.querySelectorAll("#hb .cell").forEach(e=>e.onclick=()=>{hq=[];openWriter(BYK[hs+":"+e.dataset.k],()=>{},{label:"筆順練習"})});
+}
+function hpNext(){if(!hq.length)return;const c=hq.shift();openWriter(c,hpNext,{label:`筆順練習（還有 ${hq.length} 個）`,exit:true})}
+$("b5").onclick=()=>{show("hwp");renderHp()};
+$("ht0").onclick=()=>{hs=0;renderHp()};$("ht1").onclick=()=>{hs=1;renderHp()};
+$("hx").onclick=()=>show("setup");
+$("hr").onclick=()=>{
+  const rows=[...document.querySelectorAll(".rw:checked")].map(e=>+e.value);
+  const rr=rows.length?rows:names.map((_,i)=>i);
+  hq=shuffle(CARDS.filter(c=>c.s===hs&&rr.includes(c.row)));hpNext();
+};
+$("wex").onclick=()=>{hq=[];closeWriter(false)};
 </script>
 </body>
 </html>
