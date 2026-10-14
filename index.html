@@ -44,6 +44,13 @@ button{font:inherit;color:inherit;cursor:pointer}
 .c3{background:color-mix(in srgb,#e6c929 28%,var(--card))}
 .c4{background:color-mix(in srgb,var(--ok) 28%,var(--card))}
 .due{outline:2px dashed var(--ac);outline-offset:-2px}
+.rt{width:100%;border-collapse:collapse;font-size:13px;margin:6px 0}
+.rt td,.rt th{border-bottom:1px solid var(--bd);padding:6px 4px;text-align:left}
+.rh{font-size:14px;margin:16px 0 4px}
+.stk{display:flex;height:18px;border-radius:9px;overflow:hidden;border:1px solid var(--bd)}
+.bars{display:flex;gap:4px;align-items:flex-end;height:84px}
+.bars div{flex:1;text-align:center;font-size:9px;color:var(--mut)}
+.bars i{display:block;border-radius:3px 3px 0 0}
 .lg{font-size:12px;color:var(--mut);margin:8px 0}
 #wr{position:fixed;inset:0;background:var(--bg);z-index:10;overflow:auto;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 #wr .box{max-width:420px;margin:0 auto;padding:16px;text-align:center}
@@ -88,6 +95,7 @@ footer a{color:inherit}
 <button class="big alt" id="b3">限時衝刺 60 秒</button>
 <button class="big alt" id="b4">熟練度總覽</button>
 <button class="big alt" id="b5">筆順手寫練習</button>
+<button class="big alt" id="b6">學習報告與預計完成時間</button>
 </section>
 
 <section id="grid" class="hide">
@@ -105,6 +113,12 @@ footer a{color:inherit}
 <div id="hb"></div>
 <button class="big" id="hr">隨機連續練習（依首頁勾選的行）</button>
 <button class="sm" id="hx">返回</button>
+</section>
+
+<section id="rep" class="hide">
+<div id="rb"></div>
+<button class="sm" id="rcsv">匯出紀錄 CSV</button>
+<button class="sm" id="rx">返回</button>
 </section>
 
 <section id="play" class="hide">
@@ -159,9 +173,11 @@ function speak(t){if(!TTS)return;speechSynthesis.cancel();const u=new SpeechSynt
 
 /* ---------- storage ---------- */
 const SKEY="kanaquiz.v2";
-let save={cards:{},best:0,set:null};
+let save={cards:{},best:0,set:null,days:{},hist:[],conf:{}};
 try{const t=localStorage.getItem(SKEY);if(t)save=Object.assign(save,JSON.parse(t))}catch(e){}
 function persist(){try{localStorage.setItem(SKEY,JSON.stringify(save))}catch(e){}}
+const keyOf=t=>{const d=new Date(t);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")};
+function bump(f){const k=keyOf(Date.now()),d=save.days[k]||(save.days[k]={n:0,ok:0,ms:0,hw:0});d[f]=(d[f]||0)+1;persist()}
 function st(c){return save.cards[c.id]||(save.cards[c.id]={b:0,d:0,n:0,w:0})}
 
 /* ---------- menu ---------- */
@@ -170,13 +186,13 @@ $("rows").innerHTML=names.map((n,i)=>`<label><input type="checkbox" class="rw" v
 if(S0.m)document.querySelector(`input[name=m][value=${S0.m}]`).checked=true;
 if(S0.sh!==undefined){$("sh").checked=S0.sh;$("sk").checked=S0.sk}
 if(S0.hw!==undefined)$("hw").checked=S0.hw;
-function show(id){["setup","grid","hwp","play"].forEach(x=>$(x).classList.toggle("hide",x!==id));if(id==="setup")refreshInfo()}
+function show(id){["setup","grid","hwp","rep","play"].forEach(x=>$(x).classList.toggle("hide",x!==id));if(id==="setup")refreshInfo()}
 function dueCount(){const n=Date.now();return CARDS.filter(c=>{const s=save.cards[c.id];return s&&s.n&&s.d<=n}).length}
 function refreshInfo(){$("info").textContent=`待複習 ${dueCount()} 個　衝刺最高分 ${save.best}　（進度存在這支手機的瀏覽器裡）`}
 refreshInfo();
 
 /* ---------- quiz ---------- */
-let pool=[],cur=null,mode,qm,kind,locked,right,total,streak,retest,tTimer,tEnd,hw,sess=0,fromRe=false;
+let qT=0,pool=[],cur=null,mode,qm,kind,locked,right,total,streak,retest,tTimer,tEnd,hw,sess=0,fromRe=false;
 const later=(fn,ms)=>{const t=sess;setTimeout(()=>{if(t===sess)fn()},ms)};
 function begin(k){
   const scripts=[];if($("sh").checked)scripts.push(0);if($("sk").checked)scripts.push(1);
@@ -237,24 +253,28 @@ function next(){
   }
   $("fb").textContent=fromRe?"↻ 剛才答錯的字，再試一次":"點上方大字可聽發音";
   if(qm==="listen")later(()=>speak(cur.k),150);
-  head();
+  qT=Date.now();head();
 }
 function head(){$("s1").textContent=`答對 ${right} / ${total}`;$("s2").textContent=`連續 ${streak}`}
 function choose(oc,btn){
   if(locked)return;locked=true;const ok=oc===cur;
   btn.classList.add(ok?"ok":"no");
   if(!ok)[...$("opts").children].forEach(b=>{if(b.dataset.id===cur.id)b.classList.add("ok")});
-  resolve(ok);
+  resolve(ok,oc.id);
 }
 function accepts(v){v=v.trim().toLowerCase();return v===cur.r||(ALT[cur.r]||[]).includes(v)}
 function submitType(){
   const i=$("inp");if(locked||!i.value.trim())return;
-  locked=true;i.disabled=true;const ok=accepts(i.value);i.classList.add(ok?"ok":"no");resolve(ok);
+  locked=true;i.disabled=true;const ok=accepts(i.value);i.classList.add(ok?"ok":"no");resolve(ok,i.value.trim());
 }
-function resolve(ok){
-  total++;const s=st(cur);s.n++;
-  if(ok){right++;streak++;s.b=Math.min(5,s.b+1);s.d=Date.now()+INT[s.b]*864e5}
-  else{streak=0;s.b=0;s.d=0;s.w++;retest=retest.filter(x=>x.c!==cur);retest.push({c:cur,t:4})}
+function resolve(ok,given){
+  const now=Date.now(),ms=Math.min(20000,now-qT);
+  total++;const s=st(cur);s.n++;s.t=(s.t||0)+ms;
+  if(ok){right++;streak++;if(s.d<=now){s.b=Math.min(5,s.b+1);s.d=now+INT[s.b]*864e5;if(s.b>=3&&!s.m)s.m=now}}
+  else{streak=0;s.b=0;s.d=0;s.w++;retest=retest.filter(x=>x.c!==cur);retest.push({c:cur,t:4});
+    if(given&&qm!=="type"){const ck=cur.id+">"+given;save.conf[ck]=(save.conf[ck]||0)+1}}
+  const k=keyOf(now),d=save.days[k]||(save.days[k]={n:0,ok:0,ms:0,hw:0});d.n++;if(ok)d.ok++;d.ms+=ms;
+  save.hist.push([now,cur.id,ok?1:0,ms,qm,ok?"":(given||"")]);if(save.hist.length>2000)save.hist.splice(0,save.hist.length-2000);
   persist();head();
   if(kind!=="sprint"||qm==="listen")speak(cur.k);
   if(ok){$("fb").textContent=`✓ ${cur.k} = ${cur.r}`;later(next,kind==="sprint"?350:1000)}
@@ -291,7 +311,7 @@ function renderGrid(){
 }
 $("t0").onclick=()=>{gs=0;renderGrid()};$("t1").onclick=()=>{gs=1;renderGrid()};
 $("gx").onclick=()=>show("setup");
-$("gr").onclick=()=>{if(confirm("確定要清除所有練習進度嗎？")){save.cards={};save.best=0;persist();renderGrid()}};
+$("gr").onclick=()=>{if(confirm("確定要清除所有練習進度嗎？")){save.cards={};save.best=0;save.days={};save.hist=[];save.conf={};persist();renderGrid()}};
 
 /* ---------- stroke-order writer ---------- */
 const NS="http://www.w3.org/2000/svg";
@@ -364,7 +384,7 @@ function fin(){
   if(pts.length<2){pl.remove();return}
   if(judge(pts)){
     pl.remove();mk("path",{d:W.sp[W.idx],class:"dn"},W.g.dn);W.idx++;W.fails=0;W.g.hint.innerHTML="";status();
-    if(W.idx>=W.sp.length){const tk=W.tok;setTimeout(()=>{if(W.tok===tk)closeWriter(true)},900)}else showHint();
+    if(W.idx>=W.sp.length){bump("hw");const tk=W.tok;setTimeout(()=>{if(W.tok===tk)closeWriter(true)},900)}else showHint();
   }else{
     pl.classList.add("bad");setTimeout(()=>pl.remove(),350);W.fails++;showHint();
     $("wst").textContent="筆順或位置不太對，再試一次（從藍點起筆）";
@@ -395,6 +415,62 @@ $("hr").onclick=()=>{
   hq=shuffle(CARDS.filter(c=>c.s===hs&&rr.includes(c.row)));hpNext();
 };
 $("wex").onclick=()=>{hq=[];closeWriter(false)};
+
+/* ---------- learning report ---------- */
+const MN={k2r:"看字選音",r2k:"看音選字",listen:"聽音選字",type:"打字"};
+const fd=t=>{const d=new Date(t);return d.getFullYear()+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+String(d.getDate()).padStart(2,"0")};
+const fmtT=sec=>sec<3600?Math.max(1,Math.round(sec/60))+" 分鐘":(sec/3600).toFixed(1)+" 小時";
+const pct=(a,b)=>b?Math.round(a/b*100)+"%":"-";
+const isMast=c=>{const s=save.cards[c.id];return s&&s.b>=3};
+function renderReport(){
+  const now=Date.now(),days=save.days,keys=Object.keys(days).sort();
+  let T=0,OK=0,MS=0,HW=0;keys.forEach(k=>{const d=days[k];T+=d.n;OK+=d.ok;MS+=d.ms;HW+=d.hw||0});
+  const k14=[];for(let i=13;i>=0;i--)k14.push(keyOf(now-i*864e5));
+  const a14=k14.reduce((a,k)=>a+(days[k]?days[k].n:0),0),act14=k14.filter(k=>days[k]&&days[k].n>0).length;
+  const first=keys.length?new Date(keys[0]+"T00:00:00").getTime():now;
+  const span=Math.min(14,Math.floor((now-first)/864e5)+1);
+  const apd=act14?a14/act14:0,ratio=Math.max(.3,act14/span),spa=T?MS/T/1000:4;
+  let un=0,l0=0,l1=0,l3=0,l4=0,M=0,P=0,TC=0;
+  CARDS.forEach(c=>{const s=save.cards[c.id];if(!s||!s.n){un++;return}TC+=s.n;if(s.b>=3)M++;else P++;if(s.b===0)l0++;else if(s.b<=2)l1++;else if(s.b===3)l3++;else l4++});
+  const apc=(M+P)?Math.min(25,Math.max(6,TC/(M+.5*P))):8;
+  const td=days[keyOf(now)]||{n:0,ok:0};
+  let h=`<div class="rh" style="margin-top:0">總覽</div>
+  <div style="font-size:14px;line-height:1.7">累積答題 <b>${T}</b> 題，正確率 <b>${pct(OK,T)}</b><br>練習天數 ${keys.length} 天（近 14 天活躍 ${act14} 天）<br>累積答題時間約 ${fmtT(MS/1000)}，手寫筆順 ${HW} 次<br>今天：${td.n} 題，正確率 ${pct(td.ok,td.n)}　待複習 ${dueCount()} 個</div>`;
+  const seg=(n,st)=>n?`<div style="flex:${n};${st}" title="${n}"></div>`:"";
+  h+=`<div class="rh">記憶程度（共 ${CARDS.length} 字）</div><div class="stk">${seg(un,"background:var(--bd)")}${seg(l0,"background:color-mix(in srgb,var(--no) 45%,var(--card))")}${seg(l1,"background:color-mix(in srgb,#ef9a2f 55%,var(--card))")}${seg(l3,"background:color-mix(in srgb,#e6c929 55%,var(--card))")}${seg(l4,"background:color-mix(in srgb,var(--ok) 55%,var(--card))")}</div>
+  <div class="lg">灰 未練習 ${un}　紅 剛答錯 ${l0}　橘 起步 ${l1}　黃 快記住 ${l3}　綠 熟了 ${l4}<br>「記住」＝在不同天連續答對 3 次以上（黃＋綠，共 ${M} 字）</div>`;
+  const mx=Math.max(1,...k14.map(k=>days[k]?days[k].n:0));
+  h+=`<div class="rh">近 14 天答題量（顏色＝正確率）</div><div class="bars">`+k14.map(k=>{const d=days[k]||{n:0,ok:0},a=d.n?d.ok/d.n:0,col=a>=.9?"var(--ok)":a>=.7?"#e6c929":"var(--no)";
+    return `<div title="${k}：${d.n} 題，${pct(d.ok,d.n)}"><i style="height:${Math.max(d.n?3:0,Math.round(d.n/mx*64))}px;background:${col}"></i>${k.slice(8)}</div>`}).join("")+`</div>`;
+  const sc=(label,f)=>{
+    const all=CARDS.filter(f),rem=all.filter(c=>!isMast(c)).length,got=all.length-rem;
+    if(!rem)return `<tr><td>${label}</td><td>${got}/${all.length}</td><td colspan="2">✓ 已全部記住</td></tr>`;
+    if(!apd)return `<tr><td>${label}</td><td>${got}/${all.length}</td><td colspan="2">還沒有紀錄</td></tr>`;
+    const ans=rem*apc,cd=Math.max(4,Math.ceil(ans/apd/ratio));
+    return `<tr><td>${label}</td><td>${got}/${all.length}</td><td>${fd(now+cd*864e5)}<br><small>約 ${cd} 天後</small></td><td>${fmtT(ans*spa)}</td></tr>`};
+  const basic=c=>c.row<=9;
+  h+=`<div class="rh">預計完成時間</div><table class="rt"><tr><th>範圍</th><th>已記住</th><th>預計全部記住</th><th>還需答題時間</th></tr>
+  ${sc("平假名基本46",c=>c.s===0&&basic(c))}${sc("片假名基本46",c=>c.s===1&&basic(c))}${sc("全部138字（含濁音）",()=>true)}</table>`;
+  const remB=CARDS.filter(c=>basic(c)&&!isMast(c)).length;
+  if(remB){const K14=Math.ceil(remB*apc/14);h+=`<div class="lg">若想 14 天內把基本 92 字全部記住：每天約 ${K14} 題（約 ${Math.max(1,Math.ceil(K14*spa/60))} 分鐘）。</div>`}
+  h+=`<div class="lg">估算方式：用你近 14 天的每日答題量與活躍天數，加上每個字平均需要約 ${apc.toFixed(1)} 次作答才會被記住。${T<30||keys.length<3?"<b>目前資料還少，只是粗估，多練幾天會更準。</b>":"持續每天練習才會準，中斷幾天日期就會往後延。"}</div>`;
+  const weak=CARDS.filter(c=>{const s=save.cards[c.id];return s&&s.n>=2&&s.w>0}).sort((a,b)=>{const x=save.cards[a.id],y=save.cards[b.id];return y.w/y.n-x.w/x.n||y.n-x.n}).slice(0,8);
+  const slow=CARDS.filter(c=>{const s=save.cards[c.id];return s&&s.n>=3}).sort((a,b)=>save.cards[b.id].t/save.cards[b.id].n-save.cards[a.id].t/save.cards[a.id].n).slice(0,5);
+  h+=`<div class="rh">最常答錯</div><div style="font-size:14px;line-height:1.8">`+(weak.length?weak.map(c=>{const s=save.cards[c.id];return `<span style="margin-right:12px">${c.k} ${c.r} <small>錯 ${s.w}/${s.n}</small></span>`}).join(""):"目前沒有")+`</div>`;
+  h+=`<div class="rh">反應最慢（平均秒數）</div><div style="font-size:14px;line-height:1.8">`+(slow.length?slow.map(c=>{const s=save.cards[c.id];return `<span style="margin-right:12px">${c.k} ${c.r} <small>${(s.t/s.n/1000).toFixed(1)}s</small></span>`}).join(""):"資料還不夠（每字至少答 3 次）")+`</div>`;
+  const cf=Object.entries(save.conf).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  h+=`<div class="rh">常見混淆</div><div style="font-size:14px;line-height:1.8">`+(cf.length?cf.map(([k,n])=>{const[a,b]=k.split(">"),x=BYK[a],y=BYK[b];return x&&y?`<div>${x.k}（${x.r}）誤選成 ${y.k}（${y.r}）× ${n}</div>`:""}).join(""):"目前沒有")+`</div>`;
+  const rc=save.hist.slice(-15).reverse();
+  h+=`<div class="rh">最近紀錄</div><table class="rt">`+(rc.length?rc.map(e=>{const c=BYK[e[1]],d=new Date(e[0]);return `<tr><td>${String(d.getMonth()+1)}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}</td><td>${e[2]?"✓":"✗"} ${c.k} ${c.r}</td><td>${(e[3]/1000).toFixed(1)}s</td><td>${MN[e[4]]||e[4]}</td></tr>`}).join(""):`<tr><td>還沒有紀錄</td></tr>`)+`</table>`;
+  $("rb").innerHTML=h;
+}
+$("b6").onclick=()=>{show("rep");renderReport()};
+$("rx").onclick=()=>show("setup");
+$("rcsv").onclick=()=>{
+  const rows=[["時間","假名","羅馬拼音","答對","毫秒","題型","作答"]].concat(save.hist.map(e=>{const c=BYK[e[1]];return [new Date(e[0]).toLocaleString("sv-SE"),c.k,c.r,e[2],e[3],MN[e[4]]||e[4],e[5]]}));
+  const csv="\ufeff"+rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(",")).join("\n");
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download="kana-log.csv";a.click();
+};
 </script>
 </body>
 </html>
