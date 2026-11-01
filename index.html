@@ -68,6 +68,11 @@ button{font:inherit;color:inherit;cursor:pointer}
 .us.bad{stroke:var(--no)}
 .sd{fill:var(--ac)}
 .nm{font-size:7px;fill:var(--mut)}
+details{border:1px solid var(--bd);border-radius:10px;margin:0 0 10px;padding:8px 12px;background:var(--card)}
+summary{cursor:pointer;font-size:14px}
+details input[type=password]{width:100%;box-sizing:border-box;font-size:14px;padding:8px;margin:8px 0;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--fg)}
+details .sm{margin:2px 4px 2px 0;font-size:13px;padding:6px 10px}
+#cst{margin:0 0 10px}
 footer{font-size:11px;color:var(--mut);text-align:center;margin:20px 0 4px}
 footer a{color:inherit}
 </style>
@@ -78,6 +83,7 @@ footer a{color:inherit}
 
 <section id="setup">
 <div id="info"></div>
+<div id="cst" class="lg"></div>
 <fieldset><legend>題型</legend>
 <label><input type="radio" name="m" value="k2r" checked> 看假名選讀音</label>
 <label><input type="radio" name="m" value="r2k"> 看讀音選假名</label>
@@ -96,6 +102,13 @@ footer a{color:inherit}
 <button class="big alt" id="b4">熟練度總覽</button>
 <button class="big alt" id="b5">筆順手寫練習</button>
 <button class="big alt" id="b6">學習報告與預計完成時間</button>
+<details id="cloud"><summary>☁ 雲端同步與備份</summary>
+<div class="lg">用 GitHub Gist 在手機、電腦之間同步進度。每次開啟會先讀取雲端最新進度，Token 失效時不讀取，只用本機進度。</div>
+<input id="tok" type="password" placeholder="貼上 GitHub Token（Classic，只勾 gist 權限）" autocomplete="off">
+<button class="sm" id="tsave">儲存 Token 並同步</button><button class="sm" id="tnow">立即同步</button><button class="sm" id="tclr">清除本機 Token</button>
+<div class="lg">換新 Token：直接貼上新的再按「儲存」，這支手機的進度會合併進雲端（同一個 GitHub 帳號會自動找到原本的雲端檔案）。Token 只存在這個瀏覽器，不會寫進網站程式碼。<br>建立方式：GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)，只勾 gist。</div>
+<div style="margin-top:6px"><button class="sm" id="ex">匯出進度檔</button><button class="sm" id="im">匯入進度檔</button><input type="file" id="imf" accept=".json,application/json" class="hide"></div>
+</details>
 </section>
 
 <section id="grid" class="hide">
@@ -175,7 +188,7 @@ function speak(t){if(!TTS)return;speechSynthesis.cancel();const u=new SpeechSynt
 const SKEY="kanaquiz.v2";
 let save={cards:{},best:0,set:null,days:{},hist:[],conf:{}};
 try{const t=localStorage.getItem(SKEY);if(t)save=Object.assign(save,JSON.parse(t))}catch(e){}
-function persist(){try{localStorage.setItem(SKEY,JSON.stringify(save))}catch(e){}}
+function persist(ns){try{localStorage.setItem(SKEY,JSON.stringify(save))}catch(e){}if(!ns&&typeof schedulePush==="function")schedulePush()}
 const keyOf=t=>{const d=new Date(t);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")};
 function bump(f){const k=keyOf(Date.now()),d=save.days[k]||(save.days[k]={n:0,ok:0,ms:0,hw:0});d[f]=(d[f]||0)+1;persist()}
 function st(c){return save.cards[c.id]||(save.cards[c.id]={b:0,d:0,n:0,w:0})}
@@ -269,7 +282,7 @@ function submitType(){
 }
 function resolve(ok,given){
   const now=Date.now(),ms=Math.min(20000,now-qT);
-  total++;const s=st(cur);s.n++;s.t=(s.t||0)+ms;
+  total++;const s=st(cur);s.n++;s.u=now;s.t=(s.t||0)+ms;
   if(ok){right++;streak++;if(s.d<=now){s.b=Math.min(5,s.b+1);s.d=now+INT[s.b]*864e5;if(s.b>=3&&!s.m)s.m=now}}
   else{streak=0;s.b=0;s.d=0;s.w++;retest=retest.filter(x=>x.c!==cur);retest.push({c:cur,t:4});
     if(given&&qm!=="type"){const ck=cur.id+">"+given;save.conf[ck]=(save.conf[ck]||0)+1}}
@@ -311,7 +324,7 @@ function renderGrid(){
 }
 $("t0").onclick=()=>{gs=0;renderGrid()};$("t1").onclick=()=>{gs=1;renderGrid()};
 $("gx").onclick=()=>show("setup");
-$("gr").onclick=()=>{if(confirm("確定要清除所有練習進度嗎？")){save.cards={};save.best=0;save.days={};save.hist=[];save.conf={};persist();renderGrid()}};
+$("gr").onclick=()=>{if(confirm("確定要清除所有練習進度嗎？（若已啟用雲端同步，雲端進度也會清除；其他裝置也需重置，否則會把舊進度同步回來）")){save.cards={};save.best=0;save.days={};save.hist=[];save.conf={};persist(true);renderGrid();resetCloud()}};
 
 /* ---------- stroke-order writer ---------- */
 const NS="http://www.w3.org/2000/svg";
@@ -466,6 +479,109 @@ function renderReport(){
 }
 $("b6").onclick=()=>{show("rep");renderReport()};
 $("rx").onclick=()=>show("setup");
+
+/* ---------- cloud sync (GitHub Gist) ---------- */
+const SYNCK="kanaquiz.sync",GF="kana-progress.json",API="https://api.github.com";
+let sync={token:"",gist:"",last:0},busy=false,pt=0;
+try{const x=localStorage.getItem(SYNCK);if(x)Object.assign(sync,JSON.parse(x))}catch(e){}
+function saveSync(){try{localStorage.setItem(SYNCK,JSON.stringify({token:sync.token,gist:sync.gist,last:sync.last}))}catch(e){}}
+const canon=o=>JSON.stringify(o,(k,v)=>v&&typeof v==="object"&&!Array.isArray(v)?Object.keys(v).sort().reduce((r,x)=>(r[x]=v[x],r),{}):v);
+const hm=t=>{const d=new Date(t);return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")};
+function mergeData(a,b){
+  const o={best:Math.max(a.best||0,b.best||0),cards:{},days:{},hist:[],conf:{}};
+  const ac=a.cards||{},bc=b.cards||{};
+  new Set([...Object.keys(ac),...Object.keys(bc)]).forEach(id=>{
+    const x=ac[id],y=bc[id];
+    if(!x||!y)o.cards[id]=x||y;
+    else{const ux=x.u||0,uy=y.u||0;o.cards[id]=(ux!==uy?ux>uy:(x.n||0)>=(y.n||0))?x:y}});
+  const ad=a.days||{},bd=b.days||{};
+  new Set([...Object.keys(ad),...Object.keys(bd)]).forEach(k=>{
+    const x=ad[k]||{},y=bd[k]||{};
+    o.days[k]={n:Math.max(x.n||0,y.n||0),ok:Math.max(x.ok||0,y.ok||0),ms:Math.max(x.ms||0,y.ms||0),hw:Math.max(x.hw||0,y.hw||0)}});
+  const seen=new Set();
+  [...(a.hist||[]),...(b.hist||[])].forEach(e=>{const k=e[0]+"|"+e[1];if(!seen.has(k)){seen.add(k);o.hist.push(e)}});
+  o.hist.sort((p,q)=>p[0]-q[0]);if(o.hist.length>2000)o.hist=o.hist.slice(-2000);
+  const ak=a.conf||{},bk=b.conf||{};
+  new Set([...Object.keys(ak),...Object.keys(bk)]).forEach(k=>{o.conf[k]=Math.max(ak[k]||0,bk[k]||0)});
+  return o;
+}
+function applyMerged(m){save.best=m.best;save.cards=m.cards;save.days=m.days;save.hist=m.hist;save.conf=m.conf;persist(true);refreshInfo()}
+function setStat(k){
+  const m={off:"☁ 雲端同步未啟用：進度只存在這支手機",busy:"☁ 同步中…",
+    auth:"☁ Token 已失效或權限不足：目前只用這支手機的進度，不讀取雲端。請到下方「雲端同步與備份」貼上新 Token 並按「儲存」。",
+    net:"☁ 暫時連不上 GitHub，進度先存在本機，稍後會再試。"};
+  $("cst").textContent=k==="ok"?"☁ 已同步（"+hm(sync.last)+"）":(m[k]||k);
+}
+function fail(k){setStat(k)}
+async function gh(path,o){o=o||{};return fetch(API+path,{method:o.method||"GET",body:o.body,cache:"no-store",headers:{Authorization:"Bearer "+sync.token,Accept:"application/vnd.github+json","Content-Type":"application/json"}})}
+const isAuth=s=>s===401||s===403||s===404;
+async function findGist(){
+  const r=await gh("/gists?per_page=100");
+  if(isAuth(r.status))return{err:"auth"};if(!r.ok)return{err:"net"};
+  const j=await r.json(),g=j.find(x=>x.files&&x.files[GF]);return{id:g?g.id:""};
+}
+async function readGist(){
+  const r=await gh("/gists/"+sync.gist);
+  if(r.status===401)return{err:"auth"};if(r.status===404)return{err:"nf"};if(!r.ok)return{err:r.status===403?"auth":"net"};
+  const j=await r.json(),f=j.files&&j.files[GF];if(!f)return{err:"nf"};
+  let txt=f.content;if(f.truncated){const rr=await fetch(f.raw_url,{cache:"no-store"});txt=await rr.text()}
+  try{return{data:JSON.parse(txt)}}catch(e){return{err:"bad"}}
+}
+async function createGist(d){
+  const r=await gh("/gists",{method:"POST",body:JSON.stringify({description:"50音練習進度（自動同步）",public:false,files:{[GF]:{content:JSON.stringify(d)}}})});
+  if(isAuth(r.status))return{err:"auth"};if(!r.ok)return{err:"net"};
+  return{id:(await r.json()).id};
+}
+async function patchGist(d){
+  const r=await gh("/gists/"+sync.gist,{method:"PATCH",body:JSON.stringify({files:{[GF]:{content:JSON.stringify(d)}}})});
+  return r.status;
+}
+async function syncNow(){
+  if(!sync.token||busy)return;busy=true;setStat("busy");
+  try{
+    if(!sync.gist){const f=await findGist();if(f.err)return fail(f.err);sync.gist=f.id}
+    let remote=null;
+    if(sync.gist){
+      const r=await readGist();
+      if(r.err==="auth"||r.err==="net")return fail(r.err);
+      if(r.err==="nf")sync.gist="";else if(r.data)remote=r.data;
+    }
+    const merged=mergeData(save,remote||{});
+    applyMerged(merged);
+    const out={v:2,u:Date.now(),best:merged.best,cards:merged.cards,days:merged.days,hist:merged.hist,conf:merged.conf};
+    if(!remote||canon(merged)!==canon(mergeData(remote,{}))){
+      if(sync.gist){
+        const s=await patchGist(out);
+        if(s===404||s===403)sync.gist="";else if(s===401)return fail("auth");else if(s<200||s>=300)return fail("net");
+      }
+      if(!sync.gist){const c=await createGist(out);if(c.err)return fail(c.err);sync.gist=c.id}
+    }
+    sync.last=Date.now();saveSync();setStat("ok");
+  }catch(e){fail("net")}finally{busy=false}
+}
+function schedulePush(){if(!sync.token)return;clearTimeout(pt);pt=setTimeout(syncNow,8000)}
+async function resetCloud(){
+  if(!sync.token||!sync.gist)return;
+  try{await patchGist({v:2,u:Date.now(),best:0,cards:{},days:{},hist:[],conf:{}})}catch(e){}
+}
+$("tsave").onclick=()=>{const v=$("tok").value.trim();if(!v){alert("請先貼上 Token");return}sync.token=v;sync.last=0;$("tok").value="";saveSync();syncNow()};
+$("tnow").onclick=()=>{if(!sync.token){alert("尚未設定 Token");return}syncNow()};
+$("tclr").onclick=()=>{if(confirm("清除這支手機上的 Token？雲端進度不會被刪除。")){sync.token="";saveSync();setStat("off")}};
+$("ex").onclick=()=>{
+  const d={v:2,u:Date.now(),best:save.best,cards:save.cards,days:save.days,hist:save.hist,conf:save.conf};
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(d)],{type:"application/json"}));a.download="kana-progress.json";a.click();
+};
+$("im").onclick=()=>$("imf").click();
+$("imf").onchange=e=>{
+  const f=e.target.files[0];if(!f)return;const r=new FileReader();
+  r.onload=()=>{try{const d=JSON.parse(r.result);if(!d||typeof d.cards!=="object")throw 0;
+    if(!confirm("將匯入的進度與目前進度合併，確定嗎？"))return;
+    applyMerged(mergeData(save,d));schedulePush();alert("匯入完成")}catch(x){alert("檔案格式不正確")}};
+  r.readAsText(f);e.target.value="";
+};
+document.addEventListener("visibilitychange",()=>{if(sync.token)syncNow()});
+if(sync.token)syncNow();else setStat("off");
+
 $("rcsv").onclick=()=>{
   const rows=[["時間","假名","羅馬拼音","答對","毫秒","題型","作答"]].concat(save.hist.map(e=>{const c=BYK[e[1]];return [new Date(e[0]).toLocaleString("sv-SE"),c.k,c.r,e[2],e[3],MN[e[4]]||e[4],e[5]]}));
   const csv="\ufeff"+rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(",")).join("\n");
